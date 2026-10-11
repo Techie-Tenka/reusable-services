@@ -243,7 +243,7 @@ jobs:
           images: ${{ env.ACL_REGISTRY_IMAGE }}
           tags: |
             type=raw,value=latest
-            type=raw,value=${{ needs.check_service_changes.outputs.workspace_version }}
+            type=raw,value=v${{ needs.check_service_changes.outputs.workspace_version }}
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
@@ -327,7 +327,7 @@ jobs:
           images: ${{ env.EMAIL_REGISTRY_IMAGE }}
           tags: |
             type=raw,value=latest
-            type=raw,value=${{ needs.check_service_changes.outputs.workspace_version }}
+            type=raw,value=v${{ needs.check_service_changes.outputs.workspace_version }}
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
@@ -411,7 +411,7 @@ jobs:
           images: ${{ env.FILES_REGISTRY_IMAGE }}
           tags: |
             type=raw,value=latest
-            type=raw,value=${{ needs.check_service_changes.outputs.workspace_version }}
+            type=raw,value=v${{ needs.check_service_changes.outputs.workspace_version }}
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
@@ -495,7 +495,7 @@ jobs:
           images: ${{ env.PAYMENTS_REGISTRY_IMAGE }}
           tags: |
             type=raw,value=latest
-            type=raw,value=${{ needs.check_service_changes.outputs.workspace_version }}
+            type=raw,value=v${{ needs.check_service_changes.outputs.workspace_version }}
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
