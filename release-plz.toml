@@ -6,7 +6,6 @@ git_tag_enable = false            # off by default
 git_tag_name = "v{{ version }}"
 changelog_update = true
 dependencies_update = true
-release_commits = "^(feat|fix|perf|refactor|doc|revert)"
 
 [[package]]
 name = "lib"
