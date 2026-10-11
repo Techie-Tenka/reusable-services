@@ -18,4 +18,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// sorry I just wanna trigger a build
+// sorry I just wanna trigger a build!
