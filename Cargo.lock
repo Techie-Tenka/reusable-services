@@ -10,7 +10,7 @@ checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
 
 [[package]]
 name = "acl-service"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -88,9 +88,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "ammonia"
-version = "4.2.1"
+version = "4.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "850babe4998b8b9e2dad65a56be4ee1bb977bc3cb3934fa2b28feb2297c30a55"
+checksum = "061e83b03c2681c18a6787d956e355c74e0b98ba7ba3d69b0822ade1e6f1d716"
 dependencies = [
  "cssparser",
  "html5ever",
@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "email"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "ammonia",
  "async-graphql",
@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "files"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -2615,7 +2615,7 @@ dependencies = [
 
 [[package]]
 name = "lib"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -3221,7 +3221,7 @@ checksum = "17359afc20d7ab31fdb42bb844c8b3bb1dabd7dcf7e68428492da7f16966fcef"
 
 [[package]]
 name = "payments"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "async-graphql",
  "async-graphql-axum",
