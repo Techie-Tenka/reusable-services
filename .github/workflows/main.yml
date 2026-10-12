@@ -110,61 +110,65 @@ jobs:
       - uses: useblacksmith/checkout@v1
         with:
           fetch-depth: 0
-      - id: confirm_changes
-        name: Detect changed services
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          MG_BASE: ${{ github.event.merge_group.base_sha }}
+
+      - id: file_changes
+        name: Check for Service Changes
         run: |
-          set -euo pipefail
-          # Pick the right base commit for each trigger type.
-          case "$EVENT_NAME" in
-            pull_request) BASE="$PR_BASE" ;;
-            merge_group)  BASE="$MG_BASE" ;;
-            push)         BASE="$PUSH_BEFORE" ;;
-            *)            BASE="" ;;
-          esac
-          HEAD="$GITHUB_SHA"
-          # No usable base (manual run, first push, force-push, unknown commit):
-          # deploy everything rather than silently skipping.
-          DEPLOY_ALL=false
-          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
-            echo "No usable base commit for event '$EVENT_NAME'; deploying all services."
-            DEPLOY_ALL=true
-            changed=""
+          echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
+          echo "Head SHA: ${{ github.sha }}"
+          files_temp=$(git diff --name-only --diff-filter=ACMRT ${{ github.event.pull_request.base.sha }} ${{ github.sha }})
+          files=$(echo "$files_temp" | tr "\n" " ")
+          echo "changed_files=$files" >> "$GITHUB_OUTPUT"
+
+      - id: confirm_changes
+        name: Confirm Changes
+        shell: bash
+        run: |
+          echo "Changed files: ${{ steps.file_changes.outputs.changed_files }}"
+          echo "If you see here files that you have not modified, please update your branch with changes from main."
+
+          # Check if the modified files include this path
+          if echo "${{ steps.file_changes.outputs.changed_files }}" | grep -q "${{ env.ACL_PATHS }}" || echo "${{ steps.file_changes.outputs.changed_files }}" | grep -q "${{ env.LIB_PATHS }}"; then
+            # Set the output variable and exit the loop
+            echo "triggering_path is ${{ env.ACL_PATHS }}"
+            echo "ACL_SHOULD_DEPLOY=true" >> "$GITHUB_OUTPUT"
+            cat "$GITHUB_OUTPUT"
           else
-            echo "Base SHA: $BASE"
-            echo "Head SHA: $HEAD"
-            changed=$(git diff --name-only "$BASE" "$HEAD")
+            echo "ACL_SHOULD_DEPLOY=false" >> "$GITHUB_OUTPUT"
+
           fi
-          echo "Changed files:"
-          echo "$changed"
-          # Anchored match so e.g. "services/files/src/lib/foo.rs" doesn't count as a change in lib/.
-          path_changed() {
-            grep -q "^$1" <<< "$changed"
-          }
-          LIB_CHANGED=false
-          if [[ "$DEPLOY_ALL" == "true" ]] || path_changed "$LIB_PATHS"; then
-            LIB_CHANGED=true
-            echo "lib changed: all services will be deployed."
+
+          if echo "${{ steps.file_changes.outputs.changed_files }}" | grep -q "${{ env.FILES_SERVICE_PATHS }}" || echo "${{ steps.file_changes.outputs.changed_files }}" | grep -q "${{ env.LIB_PATHS }}"; then
+            # Set the output variable and exit the loop
+            echo "triggering_path is ${{ env.FILES_SERVICE_PATHS }}"
+            echo "FILES_SHOULD_DEPLOY=true" >> "$GITHUB_OUTPUT"
+            cat "$GITHUB_OUTPUT"
+          else
+            echo "FILES_SHOULD_DEPLOY=false" >> "$GITHUB_OUTPUT"
+
           fi
-          should_deploy() {
-            if [[ "$LIB_CHANGED" == "true" ]] || path_changed "$1"; then
-              echo "true"
-            else
-              echo "false"
-            fi
-          }
-          {
-            echo "ACL_SHOULD_DEPLOY=$(should_deploy "$ACL_PATHS")"
-            echo "FILES_SHOULD_DEPLOY=$(should_deploy "$FILES_SERVICE_PATHS")"
-            echo "EMAIL_SERVICE_SHOULD_DEPLOY=$(should_deploy "$EMAIL_SERVICE_PATHS")"
-            echo "PAYMENTS_SERVICE_SHOULD_DEPLOY=$(should_deploy "$PAYMENTS_SERVICE_PATHS")"
-          } >> "$GITHUB_OUTPUT"
-          cat "$GITHUB_OUTPUT"
+
+          if echo "${{ steps.file_changes.outputs.changed_files }}" | grep -q "${{ env.EMAIL_SERVICE_PATHS }}" || echo "${{ steps.file_changes.outputs.changed_files }}" | grep -q "${{ env.LIB_PATHS }}"; then
+            # Set the output variable and exit the loop
+            echo "triggering_path is ${{ env.EMAIL_SERVICE_PATHS }}"
+            echo "EMAIL_SERVICE_SHOULD_DEPLOY=true" >> "$GITHUB_OUTPUT"
+            cat "$GITHUB_OUTPUT"
+          else
+            echo "EMAIL_SERVICE_SHOULD_DEPLOY=false" >> "$GITHUB_OUTPUT"
+
+          fi
+
+          if echo "${{ steps.file_changes.outputs.changed_files }}" | grep -q "${{ env.PAYMENTS_SERVICE_PATHS }}" || echo "${{ steps.file_changes.outputs.changed_files }}" | grep -q "${{ env.LIB_PATHS }}"; then
+            # Set the output variable and exit the loop
+            echo "triggering_path is ${{ env.PAYMENTS_SERVICE_PATHS }}"
+            echo "PAYMENTS_SERVICE_SHOULD_DEPLOY=true" >> "$GITHUB_OUTPUT"
+            cat "$GITHUB_OUTPUT"
+          else
+            echo "PAYMENTS_SERVICE_SHOULD_DEPLOY=false" >> "$GITHUB_OUTPUT"
+
+          fi
+
+          exit 0
   build_and_deploy_acl:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
