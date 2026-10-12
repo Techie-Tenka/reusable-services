@@ -535,12 +535,14 @@ jobs:
           MERGE_RETRY_SLEEP: "10000"
   release:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    permissions:
-      contents: write
     needs: [next_version, automerge]
     if: |
       needs.next_version.result == 'success' &&
       needs.automerge.result == 'success'
+    permissions:
+      contents: write
+    env:
+      TAG: v${{ needs.next_version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
