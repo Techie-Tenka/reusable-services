@@ -542,25 +542,25 @@ jobs:
       needs.next_version.result == 'success' &&
       needs.automerge.result == 'success'
     steps:
-      # Creates the tag at the commit on dev that carries this version, and marks the release as latest.
-      - name: Create tag and latest release
+      - name: Checkout repository
+        uses: useblacksmith/checkout@v1
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+      - name: Tag source repository
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-          VERSION: ${{ needs.next_version.outputs.version }}
-          SHA: ${{ needs.next_version.outputs.sha }}
         run: |
           set -euo pipefail
-          TAG="v${VERSION}"
 
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; nothing to do."
-            exit 0
-          fi
+          git tag "$TAG"
+          git push origin "$TAG"
 
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$SHA" \
-            --title "$TAG" \
-            --generate-notes \
-            --latest
+      - name: Release summary
+        shell: bash
+        run: |
+          {
+            echo "## Released ${TAG}"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
