@@ -10,7 +10,7 @@ checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
 
 [[package]]
 name = "acl-service"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -664,9 +664,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.7.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50a649af8a827553c29fb0cb4bd4a6f1a0dd695bd3232b9bc98bd9c8a3ffbb8b"
+checksum = "6651c9ed80effdc7db0ff72512157f901af5e3549e341e24b1dd4887d836d838"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "email"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "ammonia",
  "async-graphql",
@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "files"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -2615,7 +2615,7 @@ dependencies = [
 
 [[package]]
 name = "lib"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "async-graphql",
@@ -3221,7 +3221,7 @@ checksum = "17359afc20d7ab31fdb42bb844c8b3bb1dabd7dcf7e68428492da7f16966fcef"
 
 [[package]]
 name = "payments"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "async-graphql",
  "async-graphql-axum",
@@ -4589,9 +4589,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.152"
+version = "1.0.153"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1741ab7a6cc54a03a89b5d563ed60075c277d9e3cfa73ad0c1f23f23974703c6"
+checksum = "aa62079d232416ecf7b2f938d389e28bbcd3677bcdb67b42e2f29c2433552176"
 dependencies = [
  "itoa",
  "memchr",
