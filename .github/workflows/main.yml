@@ -541,28 +541,24 @@ jobs:
       needs.automerge.result == 'success'
     permissions:
       contents: write
-    env:
-      TAG: v${{ needs.next_version.outputs.version }}
     steps:
-      - name: Checkout repository
-        uses: useblacksmith/checkout@v1
-        with:
-          fetch-depth: 0
-          ref: main
-          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
-
-      - name: Tag source repository
+      - name: Create tag and latest release
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          VERSION: ${{ needs.next_version.outputs.version }}
         run: |
           set -euo pipefail
+          TAG="v${VERSION}"
 
-          git tag "$TAG"
-          git push origin "$TAG"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to do."
+            exit 0
+          fi
 
-      - name: Release summary
-        shell: bash
-        run: |
-          {
-            echo "## Released ${TAG}"
-            echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target main \
+            --title "$TAG" \
+            --generate-notes \
+            --latest
