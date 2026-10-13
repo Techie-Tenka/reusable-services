@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6](https://github.com/Techie-Tenka/reusable-services/compare/v0.2.5...v0.2.6) - 2026-10-13
+
+### Fixed
+
+- bump patch version
+
+### Other
+
+- Merge branch 'dev' of github.com:elonaire/reusable-services into rollout-tweaks
+
 ## [0.2.5](https://github.com/Techie-Tenka/reusable-services/compare/v0.2.4...v0.2.5) - 2026-10-12
 
 ### Other
