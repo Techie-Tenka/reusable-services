@@ -57,7 +57,7 @@ pub struct AppState {
     pub mqtt_client: AsyncClient,
 }
 
-// TODO: I might extract this into own module to make main.rs leaner
+// TODO: I might extract this into own module to make main.rs leaner!
 async fn graphql_handler(
     schema: Extension<MySchema>,
     db: Extension<Arc<Surreal<Client>>>,
