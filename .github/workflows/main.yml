@@ -544,14 +544,8 @@ jobs:
       contents: write
     env:
       TAG: v${{ needs.next_version.outputs.version }}
+      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
     steps:
-      - name: Checkout repository
-        uses: useblacksmith/checkout@v1
-        with:
-          fetch-depth: 0
-          ref: main
-          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
-
       - name: Tag source repository
         shell: bash
         run: |
