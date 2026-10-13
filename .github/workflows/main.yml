@@ -537,6 +537,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [next_version, automerge]
     if: |
+      always() &&
       needs.next_version.result == 'success' &&
       needs.automerge.result == 'success'
     permissions:
