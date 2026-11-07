@@ -7,6 +7,7 @@ use exif::{In, Tag};
 use hyper::HeaderMap;
 use image::{ImageFormat, ImageReader};
 use lib::{
+    configs::uploads::UploadConfig,
     integration::foreign_key::add_foreign_key_if_not_exists,
     utils::{
         api_responses::synthesize_rest_response,
@@ -15,8 +16,9 @@ use lib::{
     },
 };
 use tokio::{
-    fs::{create_dir_all, remove_file, File},
+    fs::{File, create_dir_all, remove_file},
     io::{AsyncReadExt, AsyncWriteExt},
+    sync::Mutex,
 };
 use uuid::Uuid;
 
@@ -24,17 +26,20 @@ use std::{
     env,
     io::{BufReader, Cursor},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Weak},
     time::Duration,
 };
 use surrealdb::{
+    Surreal,
     engine::remote::ws::Client,
     types::{RecordId, RecordIdKey},
-    Surreal,
 };
 
-use crate::graphql::schemas::general::{
-    Bucket, FileMeta, Key, ResolvedContainer, UploadedFile, UploadedFileResponse,
+use crate::{
+    ThumbnailLocks,
+    graphql::schemas::general::{
+        Bucket, FileMeta, Key, ResolvedContainer, UploadedFile, UploadedFileResponse,
+    },
 };
 
 #[derive(serde::Deserialize)]
@@ -43,13 +48,12 @@ pub struct ImageResizeParams {
     pub height: Option<u32>,
 }
 
-pub const SMALL_UPLOAD_LIMIT: u64 = 5 * 1024 * 1024; // 5 MiB
-
 pub async fn upload(
     AxumUrlParams(path): AxumUrlParams<String>,
     headers: HeaderMap,
     Extension(db): Extension<Arc<Surreal<Client>>>,
     Extension(auth_status): Extension<AuthStatus>,
+    Extension(cfg): Extension<Arc<UploadConfig>>,
     mut multipart: Multipart,
 ) -> Result<ApiResponseRest<Vec<UploadedFileResponse>>, ApiError> {
     let upload_dir = env::var("FILE_UPLOADS_DIR").map_err(|e| {
@@ -113,7 +117,7 @@ pub async fn upload(
                 .unwrap_or_else(|| "application/octet-stream".into());
 
             // 1. Stream to disk, enforcing the cap.
-            let total_size = write_field_to_disk(&mut field, &filepath).await?;
+            let total_size = write_field_to_disk(&mut field, &filepath, &cfg).await?;
             written_paths.push(filepath.clone());
 
             // 2. Single transaction: file row + belongs_to edge.
@@ -216,19 +220,25 @@ pub async fn get_image(
     AxumUrlParams(key): AxumUrlParams<String>,
     Query(resize_params): Query<ImageResizeParams>,
     Extension(auth_status): Extension<Option<AuthStatus>>,
+    Extension(thumbnail_locks): Extension<ThumbnailLocks>,
 ) -> Result<Response, ApiError> {
     let upload_dir = env::var("FILE_UPLOADS_DIR").map_err(|e| {
         tracing::error!("Missing FILE_UPLOADS_DIR: {}", e);
         ApiError::Internal(anyhow::anyhow!("Something went wrong!"))
     })?;
 
+    let upload_dir = PathBuf::from(upload_dir);
+
     let (container, file_name) = resolve_file_path(&db, &key, None).await?;
+
     let file_details = find_file_in_container(&db, &container, &file_name).await?;
 
+    // Authorization.
     if file_details.is_premium || !file_details.is_public {
         match auth_status.as_ref() {
             Some(auth_status) => {
                 let user = user_record_id(&db, auth_status).await?;
+
                 if !user_has_access(&db, &user, &file_details).await? {
                     return Err(ApiError::Forbidden("Not Allowed!".into()));
                 }
@@ -239,34 +249,54 @@ pub async fn get_image(
         }
     }
 
-    let path = Path::new(&upload_dir).join(&file_details.system_filename);
-    let mut file = File::open(&path).await.map_err(|e| {
-        tracing::error!(error = %e, path = %path.display(), "failed to open image");
-        ApiError::NotFound("Image not found".into())
-    })?;
+    let is_resized = resize_params.width.is_some() || resize_params.height.is_some();
 
-    let mut buffer = Vec::with_capacity(file_details.size.max(0) as usize);
-    file.read_to_end(&mut buffer).await.map_err(|e| {
-        tracing::error!(error = %e, "failed to read image");
-        ApiError::Internal(anyhow::anyhow!("Something went wrong!"))
-    })?;
+    let (final_buffer, content_type) = if is_resized {
+        let buffer = get_or_create_thumbnail(
+            &upload_dir,
+            &file_details.system_filename,
+            &file_details.mime_type,
+            resize_params.width,
+            resize_params.height,
+            &thumbnail_locks,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                filename = %file_details.system_filename,
+                "failed to retrieve thumbnail"
+            );
 
-    let content_type = file_details.mime_type.clone();
+            ApiError::Internal(anyhow::anyhow!("Something went wrong!"))
+        })?;
 
-    let final_buffer = match (resize_params.width, resize_params.height) {
-        (None, None) => buffer,
-        (width, height) => match resize_image(&buffer, &content_type, width, height) {
-            Ok(resized) => resized,
-            Err(e) => {
-                tracing::warn!(error = ?e, "resize failed, serving original");
-                buffer
-            }
-        },
+        (buffer, "image/webp")
+    } else {
+        let path = upload_dir.join(&file_details.system_filename);
+
+        let buffer = tokio::fs::read(&path).await.map_err(|e| {
+            tracing::error!(
+                error = %e,
+                path = %path.display(),
+                "failed to read image"
+            );
+
+            ApiError::NotFound("Image not found".into())
+        })?;
+
+        (buffer, file_details.mime_type.as_str())
+    };
+
+    let cache_control = if file_details.is_public && !file_details.is_premium {
+        "public, max-age=86400, immutable"
+    } else {
+        "private, no-store"
     };
 
     Response::builder()
         .header("Content-Type", content_type)
-        .header("Cache-Control", "public, max-age=86400, immutable")
+        .header("Cache-Control", cache_control)
         .body(final_buffer.into())
         .map_err(|e| {
             tracing::error!(error = %e, "failed to build response");
@@ -295,7 +325,7 @@ fn resize_image(
             StatusCode::BAD_REQUEST
         })?;
 
-    // Apply EXIF orientation before resizing
+    // Apply EXIF orientation before resizing.
     let img = apply_exif_orientation(img, buffer);
 
     let resized = match (width, height) {
@@ -306,10 +336,13 @@ fn resize_image(
     };
 
     let mut output = Cursor::new(Vec::new());
-    resized.write_to(&mut output, format).map_err(|e| {
-        tracing::error!("Failed to write image: {:?}", e);
-        StatusCode::BAD_REQUEST
-    })?;
+
+    resized
+        .write_to(&mut output, ImageFormat::WebP)
+        .map_err(|e| {
+            tracing::error!("Failed to encode WebP image: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(output.into_inner())
 }
@@ -504,6 +537,7 @@ pub async fn create_file_record(
 async fn write_field_to_disk(
     field: &mut axum::extract::multipart::Field<'_>,
     filepath: &Path,
+    cfg: &Arc<UploadConfig>,
 ) -> Result<u64, ApiError> {
     let mut file = File::create(filepath).await.map_err(|e| {
         tracing::error!(error = %e, path = %filepath.display(), "failed to create file");
@@ -511,20 +545,21 @@ async fn write_field_to_disk(
     })?;
 
     let mut total: u64 = 0;
+    let upload_limit = cfg.max_upload_size * 1024 * 1024;
 
     while let Some(chunk) = field.chunk().await.map_err(|e| {
         tracing::error!(error = %e, "failed to read chunk");
         ApiError::Internal(anyhow::anyhow!("Something went wrong!"))
     })? {
         total += chunk.len() as u64;
-        if total > SMALL_UPLOAD_LIMIT {
+        if total > upload_limit {
             tracing::warn!(
-                limit = SMALL_UPLOAD_LIMIT,
-                "field exceeds small upload limit; client should use /uploads/initiate"
+                limit = upload_limit,
+                "field exceeds small upload limit; client should use /multipart-upload/initiate"
             );
             return Err(ApiError::PayloadTooLarge(format!(
                 "file exceeds {} byte limit; use multipart upload for larger files",
-                SMALL_UPLOAD_LIMIT
+                upload_limit
             )));
         }
         file.write_all(&chunk).await.map_err(|e| {
@@ -657,4 +692,93 @@ pub async fn find_file_in_container(
         tracing::warn!(name, "file not found in container");
         ApiError::NotFound(format!("file `{name}` not found"))
     })
+}
+
+// Thumbnail Logic
+fn thumbnail_filename(system_filename: &str, width: Option<u32>, height: Option<u32>) -> String {
+    let dimensions = match (width, height) {
+        (Some(w), Some(h)) => format!("{w}wx{h}h"),
+        (Some(w), None) => format!("{w}w"),
+        (None, Some(h)) => format!("{h}h"),
+        (None, None) => unreachable!(),
+    };
+
+    format!("thumb-{system_filename}{dimensions}")
+}
+
+async fn get_thumbnail_lock(locks: &ThumbnailLocks, key: &str) -> Arc<Mutex<()>> {
+    let mut registry = locks.lock().await;
+
+    registry.retain(|_, lock| lock.strong_count() > 0);
+
+    if let Some(lock) = registry.get(key).and_then(Weak::upgrade) {
+        return lock;
+    }
+
+    let lock = Arc::new(Mutex::new(()));
+
+    registry.insert(key.to_string(), Arc::downgrade(&lock));
+
+    lock
+}
+
+async fn get_or_create_thumbnail(
+    upload_dir: &Path,
+    system_filename: &str,
+    content_type: &str,
+    width: Option<u32>,
+    height: Option<u32>,
+    locks: &ThumbnailLocks,
+) -> anyhow::Result<Vec<u8>> {
+    let thumbnail_name = thumbnail_filename(system_filename, width, height);
+
+    let thumbnail_path = upload_dir.join(&thumbnail_name);
+
+    // 1. Fast path: read existing thumbnail without locking.
+    match tokio::fs::read(&thumbnail_path).await {
+        Ok(buffer) => return Ok(buffer),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+
+    // 2. Cache miss: obtain the thumbnail-specific lock.
+    let lock = get_thumbnail_lock(locks, &thumbnail_name).await;
+
+    let _guard = lock.lock().await;
+
+    // 3. Double-check: another request may have generated it.
+    match tokio::fs::read(&thumbnail_path).await {
+        Ok(buffer) => return Ok(buffer),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+
+    // 4. Read the original image.
+    let original_path = upload_dir.join(system_filename);
+    let buffer = tokio::fs::read(&original_path).await?;
+
+    // 5. Generate WebP thumbnail.
+    let resized = resize_image(&buffer, content_type, width, height)
+        .map_err(|e| anyhow::anyhow!("Thumbnail generation failed: {e}"))?;
+
+    // 6. Write to a unique temporary file in the same directory.
+    let temp_path = upload_dir.join(format!("tmp-{}", uuid::Uuid::new_v4()));
+
+    if let Err(e) = tokio::fs::write(&temp_path, &resized).await {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(e.into());
+    }
+
+    // 7. Publish the completed thumbnail.
+    if let Err(e) = tokio::fs::rename(&temp_path, &thumbnail_path).await {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+
+        // Another process may have generated the thumbnail.
+        match tokio::fs::read(&thumbnail_path).await {
+            Ok(buffer) => return Ok(buffer),
+            Err(_) => return Err(e.into()),
+        }
+    }
+
+    Ok(resized)
 }
