@@ -76,7 +76,7 @@ on_success = "back" # so that we don't open the browser at each change
 [jobs.run-acl]
 command = [
     "sh", "-c",
-    "set -a; . ../../.env; set +a; exec cargo run --package acl-service"
+    "set -a; . ../../env/kompetia/acl.env; set +a; exec cargo run --package acl-service"
 ]
 need_stdout = true
 allow_warnings = true
@@ -88,7 +88,7 @@ watch = ["services/acl-service", "lib"]
 [jobs.run-email]
 command = [
     "sh", "-c",
-    "set -a; . ../../.env; set +a; exec cargo run --package email"
+    "set -a; . ../../env/kompetia/email.env; set +a; exec cargo run --package email"
 ]
 need_stdout = true
 allow_warnings = true
@@ -100,7 +100,7 @@ watch = ["services/email", "lib"]
 [jobs.run-files]
 command = [
     "sh", "-c",
-    "set -a; . ../../.env; set +a; exec cargo run --package files"
+    "set -a; . ../../env/kompetia/files.env; set +a; exec cargo run --package files"
 ]
 need_stdout = true
 allow_warnings = true
@@ -112,7 +112,7 @@ watch = ["services/files", "lib"]
 [jobs.run-payments]
 command = [
     "sh", "-c",
-    "set -a; . ../../.env; set +a; exec cargo run --package payments"
+    "set -a; . ../../env/kompetia/payments.env; set +a; exec cargo run --package payments"
 ]
 need_stdout = true
 allow_warnings = true

@@ -5,32 +5,34 @@ mod rest;
 mod utils;
 
 use std::{
+    collections::HashMap,
     env,
     io::{Error, ErrorKind},
     net::SocketAddr,
-    sync::Arc,
+    sync::{Arc, Weak},
     time::Duration,
 };
 
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{
+    Router,
     extract::{DefaultBodyLimit, Extension},
     http::{HeaderMap, HeaderValue},
     middleware,
     routing::{get, post, put},
-    serve, Router,
+    serve,
 };
 
 use chrono::Duration as ChronoDuration;
 use graphql::resolvers::query::Query;
 use hyper::{
+    Method, StatusCode,
     header::{
         ACCEPT, ACCESS_CONTROL_ALLOW_CREDENTIALS, ACCESS_CONTROL_ALLOW_HEADERS,
         ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_EXPOSE_HEADERS,
         AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE,
     },
-    Method, StatusCode,
 };
 
 use grpc::server::FilesServiceImplementation;
@@ -46,10 +48,11 @@ use lib::{
     },
 };
 use rest::handlers::{download_file, get_image, upload};
-use surrealdb::{engine::remote::ws::Client, Surreal};
+use surrealdb::{Surreal, engine::remote::ws::Client};
+use tokio::sync::Mutex;
 use tonic::transport::Server;
 use tonic_middleware::{MiddlewareLayer, RequestInterceptorLayer};
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::cors::CorsLayer;
 
 use graphql::resolvers::mutation::Mutation;
@@ -57,6 +60,8 @@ use tracing_subscriber::fmt::writer::MakeWriterExt;
 use uuid::Uuid;
 
 use crate::rest::multipart::{self, abort, complete, initiate, list_parts, part_url, upload_part};
+
+pub type ThumbnailLocks = Arc<Mutex<HashMap<String, Weak<Mutex<()>>>>>;
 
 type MySchema = Schema<Query, Mutation, EmptySubscription>;
 
@@ -133,6 +138,9 @@ async fn main() -> Result<(), Error> {
         e
     })?);
 
+    // Thumbnail locks
+    let thumbnail_locks: ThumbnailLocks = Arc::new(Mutex::new(HashMap::new()));
+
     // Bring in some needed env vars
     let deployment_env = env::var("ENVIRONMENT").unwrap_or_else(|_| "prod".to_string()); // default to production because it's the most secure
     let allowed_services_cors = env::var("ALLOWED_SERVICES_CORS").map_err(|e| {
@@ -190,10 +198,12 @@ async fn main() -> Result<(), Error> {
     let governor_limiter = governor_conf.limiter().clone();
     let interval = Duration::from_secs(60);
     // a separate background task to clean up
-    std::thread::spawn(move || loop {
-        std::thread::sleep(interval);
-        tracing::info!("rate limiting storage size: {}", governor_limiter.len());
-        governor_limiter.retain_recent();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(interval);
+            tracing::info!("rate limiting storage size: {}", governor_limiter.len());
+            governor_limiter.retain_recent();
+        }
     });
 
     let auth_required = Router::new()
@@ -232,6 +242,7 @@ async fn main() -> Result<(), Error> {
         .layer(GovernorLayer::new(governor_conf))
         .layer(Extension(schema))
         .layer(Extension(db.clone()))
+        .layer(Extension(thumbnail_locks))
         .layer(
             CorsLayer::new()
                 .allow_origin(origins)
