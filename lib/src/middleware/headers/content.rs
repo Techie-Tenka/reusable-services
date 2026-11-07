@@ -17,17 +17,18 @@ pub async fn limit_by_content_length(req: Request, next: Next) -> Result<Respons
         .get(CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok());
+    let max_upload_size_bytes = max_upload_size * 1024 * 1024;
 
     match declared {
-        Some(len) if len > max_upload_size => {
+        Some(len) if len > (max_upload_size_bytes) => {
             tracing::warn!(
                 declared = len,
                 limit = max_upload_size,
                 "upload rejected: request body too large"
             );
             Err(ApiError::PayloadTooLarge(format!(
-                    "request body exceeds {max_upload_size} bytes; use /multipart-upload/initiate for larger files"
-                )))
+                "request body exceeds {max_upload_size_bytes} bytes; use /multipart-upload/initiate for larger files"
+            )))
         }
         None => {
             // Chunked transfer: no Content-Length to check. Refuse rather than
