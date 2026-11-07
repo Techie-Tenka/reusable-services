@@ -3,15 +3,15 @@ use std::sync::Arc;
 use async_graphql::{Context, Object, Result};
 use axum::Extension;
 use hyper::{
-    header::{AUTHORIZATION, COOKIE},
     HeaderMap, StatusCode,
+    header::{AUTHORIZATION, COOKIE},
 };
 use lib::utils::{
     api_responses::synthesize_graphql_response,
     custom_error::ExtendedError,
-    models::{ApiResponse, AuthStatus, AuthorizationConstraint},
+    models::{AuthStatus, AuthorizationConstraint},
 };
-use surrealdb::{engine::remote::ws::Client, Surreal};
+use surrealdb::{Surreal, engine::remote::ws::Client};
 
 use crate::{
     graphql::schemas::{
@@ -169,61 +169,8 @@ impl Query {
             ExtendedError::new("Server Error", StatusCode::INTERNAL_SERVER_ERROR.as_str()).build()
         })?;
 
-        match ctx.data_opt::<HeaderMap>() {
-            Some(header_map) => {
-                let auth_header = header_map.get(AUTHORIZATION);
-                let cookie_header = header_map.get(COOKIE);
-
-                if auth_header.is_none() || cookie_header.is_none() {
-                    let mut user_query = db
-                        .query(
-                            "
-                            LET $user_record = type::record('user', $user_id);
-                            LET $found_user = (SELECT * OMIT password, user_name, status FROM ONLY user WHERE id = $user_record OR oauth_user_id = $user_id LIMIT 1);
-                            RETURN $found_user;
-                            "
-                        )
-                        .bind(("user_id", user_id))
-                        .await
-                        .map_err(|e| {
-                        tracing::error!("Error fetching user: {}", e);
-                        ExtendedError::new("Error fetching user", StatusCode::BAD_REQUEST.as_str()).build()
-                    })?;
-
-                    let user: Option<User> = user_query.take(2).map_err(|e| {
-                        tracing::error!("User deserialization error: {}", e);
-                        ExtendedError::new(
-                            "Server Error",
-                            StatusCode::INTERNAL_SERVER_ERROR.as_str(),
-                        )
-                        .build()
-                    })?;
-
-                    match user {
-                        Some(user) => {
-                            let api_response = synthesize_graphql_response(ctx, &user, None)
-                                .ok_or_else(|| {
-                                    tracing::error!("Failed to synthesize response!");
-                                    ExtendedError::new(
-                                        "Bad Request",
-                                        StatusCode::BAD_REQUEST.as_str(),
-                                    )
-                                    .build()
-                                })?;
-                            return Ok(api_response.into());
-                        }
-                        None => {
-                            return Err(ExtendedError::new(
-                                "User not found",
-                                StatusCode::NOT_FOUND.as_str(),
-                            )
-                            .build())
-                        }
-                    }
-                }
-
-                let authenticated = confirm_authentication(db, ctx).await?;
-
+        match confirm_authentication(db, ctx).await {
+            Ok(authenticated) => {
                 let authenticated_ref = &authenticated;
 
                 let authorization_constraint = AuthorizationConstraint {
@@ -300,13 +247,46 @@ impl Query {
                     .build()),
                 }
             }
-            None => {
-                tracing::error!("Malformed request!");
-                return Err(ExtendedError::new(
-                    "Malformed request",
-                    StatusCode::BAD_REQUEST.as_str(),
-                )
-                .build());
+            Err(_e) => {
+                let mut user_query = db
+                    .query(
+                        "
+                        LET $user_record = type::record('user', $user_id);
+                        LET $found_user = (SELECT * OMIT password, user_name, status FROM ONLY user WHERE id = $user_record OR oauth_user_id = $user_id LIMIT 1);
+                        RETURN $found_user;
+                        "
+                    )
+                    .bind(("user_id", user_id))
+                    .await
+                    .map_err(|e| {
+                    tracing::error!("Error fetching user: {}", e);
+                    ExtendedError::new("Error fetching user", StatusCode::BAD_REQUEST.as_str()).build()
+                })?;
+
+                let user: Option<User> = user_query.take(2).map_err(|e| {
+                    tracing::error!("User deserialization error: {}", e);
+                    ExtendedError::new("Server Error", StatusCode::INTERNAL_SERVER_ERROR.as_str())
+                        .build()
+                })?;
+
+                match user {
+                    Some(user) => {
+                        let api_response = synthesize_graphql_response(ctx, &user, None)
+                            .ok_or_else(|| {
+                                tracing::error!("Failed to synthesize response!");
+                                ExtendedError::new("Bad Request", StatusCode::BAD_REQUEST.as_str())
+                                    .build()
+                            })?;
+                        return Ok(api_response.into());
+                    }
+                    None => {
+                        return Err(ExtendedError::new(
+                            "User not found",
+                            StatusCode::NOT_FOUND.as_str(),
+                        )
+                        .build());
+                    }
+                }
             }
         }
     }
@@ -348,7 +328,7 @@ impl Query {
             None => {
                 return Err(
                     ExtendedError::new("User not found", StatusCode::NOT_FOUND.as_str()).build(),
-                )
+                );
             }
         }
     }
