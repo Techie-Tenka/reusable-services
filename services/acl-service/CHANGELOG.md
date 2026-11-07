@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/Techie-Tenka/reusable-services/compare/v0.3.0...v0.3.1) - 2026-11-07
+
+### Fixed
+
+- rectify fetch single user auth for guest users ([#252](https://github.com/Techie-Tenka/reusable-services/pull/252))
+
 ## [0.2.6](https://github.com/Techie-Tenka/reusable-services/compare/v0.2.5...v0.2.6) - 2026-10-13
 
 ### Fixed
